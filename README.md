@@ -132,6 +132,60 @@ Every harness is described by a **registry** in `bin/fabric` recording its detec
 instruction path + strategy (`symlink` or `manual`), skills dir + strategy (`additive` or
 `none`), and CLI name for probes — adding a harness is one registry line.
 
+### Worked examples
+
+**Preview before you touch anything** — `sync --dry-run` prints every action it *would*
+take (links, backups) and writes nothing:
+
+```text
+$ fabric sync --dry-run
+[fabric] DRY RUN — no changes will be written
+[fabric] wiring instruction files
+[fabric] [dry-run] would link ~/.codex/AGENTS.md -> ~/.agent-fabric/AGENTS.md
+[fabric] fanning out skills (additive)
+[fabric] sync done
+```
+
+**Script against the fabric** — `status --json` is stable, parseable output:
+
+```text
+$ fabric status --json | python3 -m json.tool
+{
+  "fabric_home": "/Users/you/.agent-fabric",
+  "skill_count": 3,
+  "skills": ["agent-fabric", "code-review", "team-conventions"],
+  "harnesses": [
+    {"name": "codex", "detected": true,
+     "instructions": {"path": "/Users/you/.codex/AGENTS.md", "strategy": "symlink", "state": "wired"},
+     "skills": {"path": "/Users/you/.codex/skills", "strategy": "additive", "linked": 3}},
+    {"name": "warp", "detected": true,
+     "instructions": {"strategy": "manual", "state": "manual"},
+     "note": "Warp global Rules are cloud-managed (Settings -> Rules); skills discovered via ~/.agents/skills"}
+  ]
+}
+```
+
+States: `wired` (symlink to canonical) · `conflict` (something else occupies the path —
+run `fabric sync`) · `missing` · `manual` (cannot be file-wired; do it in the tool's UI) ·
+`not-detected` (tool not installed).
+
+**Prove the content actually loads** — `doctor` catches what topology checks can't name.
+For example, if a symlink was replaced by an edited copy at some point:
+
+```text
+$ fabric doctor
+[PASS] canonical resolves and is non-empty
+[FAIL] codex: ~/.codex/AGENTS.md does NOT resolve to canonical (stale or divergent content)
+[info] warp: MANUAL/unverifiable — Warp global Rules are cloud-managed (Settings -> Rules); ...
+1 doctor probe(s) failed.
+$ fabric sync && fabric doctor   # repair, then re-probe
+All doctor probes passed.
+```
+
+`doctor` also accepts the **overlay pattern**: if an instruction path is a real file that
+contains a genuine `@`-import of the canonical AGENTS.md (Claude Code syntax), that passes —
+a file that merely *mentions* the canonical path does not.
+
 Put it on your PATH: `echo 'export PATH="$HOME/.agent-fabric/bin:$PATH"' >> ~/.zshrc`
 
 A starter skill (`agent-fabric`) is installed into the hub. It teaches your agents how the
