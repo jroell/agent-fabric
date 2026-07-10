@@ -182,6 +182,19 @@ echo; echo "=== T10: absent harness stays absent ==="
 [[ ! -e "$HOME/.aider" && ! -e "$HOME/.gitgang" ]]
 assert $? "undetected harness dirs were not created by the fabric"
 
+# ── Test 11: competing-hub guard ───────────────────────────────────────
+echo; echo "=== T11: competing-hub guard ==="
+GUARD_HOME="$(mktemp -d /tmp/agent-fabric-guard.XXXXXX)"
+mkdir -p "$GUARD_HOME/.shared-agent-memory"
+env -u FABRIC_HOME HOME="$GUARD_HOME" bash "$REPO_DIR/install.sh" >/dev/null 2>&1
+[[ $? -ne 0 ]]
+assert $? "install refuses to seed a second hub when ~/.shared-agent-memory exists"
+[[ ! -e "$GUARD_HOME/.agent-fabric" ]]
+assert $? "no hub was created by the refused install"
+env HOME="$GUARD_HOME" FABRIC_HOME="$GUARD_HOME/.agent-fabric" bash "$REPO_DIR/install.sh" >/dev/null 2>&1
+assert $? "explicit FABRIC_HOME overrides the guard"
+rm -rf "$GUARD_HOME"
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo
 echo "──────────────────────────────"

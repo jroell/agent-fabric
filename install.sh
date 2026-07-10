@@ -19,13 +19,30 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/jroell/agent-fabric"
+FABRIC_HOME_WAS_SET="${FABRIC_HOME+yes}"
 FABRIC_HOME="${FABRIC_HOME:-$HOME/.agent-fabric}"
 
 log() { printf '\033[1;34m[install]\033[0m %s\n' "$*"; }
 die() { printf '\033[0;31m[install] ERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
-# ── 0. Platform guard ────────────────────────────────────────────────────────
+# ── 0. Platform guard ──────────────────────────────────────────────────────────────────
 [[ "$(uname -s)" == "Darwin" ]] || die "agent-fabric currently supports macOS only (see README)."
+
+# ── 0.5 Competing-hub guard ────────────────────────────────────────────────────────
+# If this machine already runs a fabric-style canonical hub (a hand-rolled
+# ~/.shared-agent-memory), seeding a second hub would create two competing
+# sources of truth fighting over the same symlink surfaces. Adoption must be
+# an explicit decision, not a default.
+if [[ -d "$HOME/.shared-agent-memory" && "$FABRIC_HOME_WAS_SET" != "yes" ]]; then
+  printf '\033[0;31m[install] ERROR: existing canonical hub detected at ~/.shared-agent-memory.\033[0m\n' >&2
+  printf 'Installing with defaults would create a SECOND hub competing over the same\n' >&2
+  printf 'instruction files and skill directories. Choose one explicitly:\n' >&2
+  printf '  * Keep your existing hub:   FABRIC_HOME="$HOME/.shared-agent-memory" ./install.sh\n' >&2
+  printf '    (only do this if its layout matches: AGENTS.md + skills/ at the root)\n' >&2
+  printf '  * Force a fresh fabric hub: FABRIC_HOME="$HOME/.agent-fabric" ./install.sh\n' >&2
+  printf '    (then migrate content and retire the old hub yourself)\n' >&2
+  exit 1
+fi
 
 # ── 1. Locate repo files (or fetch them when piped via curl) ────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"

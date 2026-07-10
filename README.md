@@ -152,6 +152,12 @@ rm -rf ~/.agent-fabric                  # remove the hub last
 ## Roadmap
 
 - Optional shared adaptive memory via [Mem0](https://mem0.ai) MCP (config snippets per tool)
+- Detect-and-adopt installer mode: adopt an existing hand-rolled hub in place instead of
+  refusing (the installer currently aborts if it finds one, to avoid two sources of truth)
+- Harness registry with per-tool instruction/skill/memory strategies, `--dry-run`, and
+  machine-readable `fabric status --json`
+- Effective-loading verification (probe each harness's own CLI to confirm rules/skills are
+  actually ingested, not just symlinked)
 - Linux support
 - More harnesses (ForgeCode, Antigravity, gitgang)
 
