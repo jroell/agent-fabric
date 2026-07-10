@@ -1,0 +1,71 @@
+<svg width="1280" height="340" viewBox="0 0 1280 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="agent-fabric — one canonical hub for your AI agents' skills, rules and memory">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b2e"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="50%" stop-color="#2dd4bf"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="340" fill="url(#bg)"/>
+  <rect x="0" y="334" width="1280" height="6" fill="url(#accent)"/>
+
+  <!-- terminal window chrome -->
+  <rect x="64" y="56" width="640" height="228" rx="12" fill="#0b0f17" stroke="#263041" stroke-width="1.5"/>
+  <circle cx="92" cy="82" r="6" fill="#ff5f57"/>
+  <circle cx="114" cy="82" r="6" fill="#febc2e"/>
+  <circle cx="136" cy="82" r="6" fill="#28c840"/>
+
+  <g font-family="SFMono-Regular, Menlo, Consolas, monospace">
+    <text x="92" y="132" font-size="44" font-weight="700" fill="#e6edf3">agent<tspan fill="#2dd4bf">-</tspan>fabric</text>
+    <text x="92" y="168" font-size="17" fill="#8b949e">One canonical hub for your AI agents'</text>
+    <text x="92" y="192" font-size="17" fill="#8b949e">skills, rules &amp; memory.</text>
+    <text x="92" y="236" font-size="15" fill="#7ee787">$ fabric sync</text>
+    <text x="92" y="260" font-size="15" fill="#58a6ff">[ok] every agent, one source of truth</text>
+  </g>
+
+  <!-- hub-and-spoke topology -->
+  <g stroke="#2dd4bf" stroke-opacity="0.45" stroke-width="1.5">
+    <line x1="985" y1="170" x2="815" y2="80"/>
+    <line x1="985" y1="170" x2="935" y2="62"/>
+    <line x1="985" y1="170" x2="1075" y2="66"/>
+    <line x1="985" y1="170" x2="1170" y2="110"/>
+    <line x1="985" y1="170" x2="1180" y2="210"/>
+    <line x1="985" y1="170" x2="1105" y2="272"/>
+    <line x1="985" y1="170" x2="955" y2="284"/>
+    <line x1="985" y1="170" x2="828" y2="248"/>
+  </g>
+  <circle cx="985" cy="170" r="86" fill="url(#glow)"/>
+  <circle cx="985" cy="170" r="34" fill="#0b0f17" stroke="url(#accent)" stroke-width="3"/>
+  <g font-family="SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle">
+    <text x="985" y="176" font-size="13" fill="#e6edf3" font-weight="700">hub</text>
+    <g font-size="12" fill="#8b949e">
+      <text x="815" y="72">claude</text>
+      <text x="935" y="52">codex</text>
+      <text x="1075" y="56">warp</text>
+      <text x="1188" y="102">cursor</text>
+      <text x="1198" y="232">gemini</text>
+      <text x="1110" y="292">grok</text>
+      <text x="950" y="304">opencode</text>
+      <text x="820" y="268">hermes</text>
+    </g>
+    <g fill="#2dd4bf">
+      <circle cx="815" cy="80" r="5"/>
+      <circle cx="935" cy="62" r="5"/>
+      <circle cx="1075" cy="66" r="5"/>
+      <circle cx="1170" cy="110" r="5"/>
+      <circle cx="1180" cy="210" r="5"/>
+      <circle cx="1105" cy="272" r="5"/>
+      <circle cx="955" cy="284" r="5"/>
+      <circle cx="828" cy="248" r="5"/>
+    </g>
+  </g>
+</svg>

@@ -1,11 +1,31 @@
+<div align="center">
+
+<img src="docs/assets/banner.svg" alt="agent-fabric — one canonical hub for your AI agents' skills, rules & memory" width="100%"/>
+
+### The single source of truth for every AI agent on your Mac.
+
+**Install a skill once — every agent can use it. Write a rule once — every agent follows it.**
+
+[![CI](https://github.com/jroell/agent-fabric/actions/workflows/ci.yml/badge.svg)](https://github.com/jroell/agent-fabric/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/jroell/agent-fabric?color=2dd4bf&label=release)](https://github.com/jroell/agent-fabric/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%28Apple%20Silicon%29-black?logo=apple)](#%EF%B8%8F-macos-only-for-now)
+[![Made with Bash](https://img.shields.io/badge/made%20with-bash%203.2-1f425f?logo=gnubash&logoColor=white)](bin/fabric)
+[![Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)](CONTRIBUTING.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![GitHub stars](https://img.shields.io/github/stars/jroell/agent-fabric?style=social)](https://github.com/jroell/agent-fabric/stargazers)
+
+**Works with**
+
+`Claude Code` · `Codex` · `Warp` · `Cursor` · `Gemini CLI` · `Grok CLI` · `OpenCode` · `Hermes`
+
+[Quickstart](#quickstart) · [How it works](#the-fix) · [Commands](#daily-use) · [Adopt an existing hub](#already-have-a-hand-rolled-hub) · [Contributing](CONTRIBUTING.md)
+
+</div>
+
+---
+
 # agent-fabric
-
-**One canonical home for your AI agents' skills, rules, and memory — shared across every
-agent harness on your Mac.**
-
-Install a skill once, every agent can use it. Write a rule once, every agent follows it.
-Claude Code, Codex, Warp, Cursor, Gemini CLI, Grok CLI, and OpenCode all read from a single
-source of truth, wired together with symlinks and kept honest by a verifier.
 
 > ## ⚠️ macOS only (for now)
 > This project currently targets **macOS on Apple Silicon (macOS 13+)** and assumes the
@@ -23,6 +43,17 @@ your skills fragment, and each tool knows a different version of you.
 
 A single hub — `~/.agent-fabric/` — holds the canonical copy of everything. Every harness
 gets a **symlink**, never a copy. Edit one file; every agent sees it instantly.
+
+```mermaid
+flowchart LR
+  HUB[("~/.agent-fabric<br/>AGENTS.md · skills/ · memory/")]
+  HUB -->|symlink| C["Claude Code<br/>~/.claude/CLAUDE.md"]
+  HUB -->|symlink| X["Codex<br/>~/.codex/AGENTS.md"]
+  HUB -->|symlink| G["Gemini CLI<br/>~/.gemini/GEMINI.md"]
+  HUB -->|symlink| K["Grok · Cursor · OpenCode · Hermes"]
+  HUB -->|additive skill links| S["~/.agents/skills<br/>(Warp + shared root)"]
+  W["Warp global Rules"] -.->|cloud-managed: manual| HUB
+```
 
 ```
 ~/.agent-fabric/
@@ -236,6 +267,21 @@ rm -rf ~/.agent-fabric                  # remove the hub last
 - Linux support
 - More harnesses (ForgeCode, Antigravity, gitgang)
 
+## Community & contributing
+
+- ⭐ **If agent-fabric saves you from copy-pasting rules between agents, star the repo** —
+  it's how other people fighting the same fragmentation find it.
+- 🛠 [CONTRIBUTING.md](CONTRIBUTING.md) — adding a harness is one registry line + tests.
+- 🔒 [SECURITY.md](SECURITY.md) — design posture and private reporting.
+- 🐛 [Issues](https://github.com/jroell/agent-fabric/issues) — include `fabric status --json`
+  and `fabric doctor` output (they never contain secrets).
+
+**Share it:**
+[𝕏/Twitter](https://twitter.com/intent/tweet?text=agent-fabric%20%E2%80%94%20one%20canonical%20hub%20for%20your%20AI%20agents%27%20skills%2C%20rules%20%26%20memory.%20Install%20a%20skill%20once%2C%20every%20agent%20uses%20it%20%28Claude%20Code%2C%20Codex%2C%20Warp%2C%20Cursor%2C%20Gemini%2C%20Grok%2C%20OpenCode%2C%20Hermes%29&url=https%3A%2F%2Fgithub.com%2Fjroell%2Fagent-fabric)
+· [Hacker News](https://news.ycombinator.com/submitlink?u=https%3A%2F%2Fgithub.com%2Fjroell%2Fagent-fabric&t=agent-fabric%3A%20one%20canonical%20hub%20for%20your%20AI%20agents%27%20skills%2C%20rules%20%26%20memory)
+· [Reddit](https://www.reddit.com/submit?url=https%3A%2F%2Fgithub.com%2Fjroell%2Fagent-fabric&title=agent-fabric%3A%20one%20canonical%20hub%20for%20your%20AI%20agents%27%20skills%2C%20rules%20%26%20memory)
+· [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fgithub.com%2Fjroell%2Fagent-fabric)
+
 ## License
 
-MIT
+[MIT](LICENSE)
