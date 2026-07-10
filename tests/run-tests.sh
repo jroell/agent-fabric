@@ -38,7 +38,7 @@ echo
 mkdir -p "$HOME/.claude/skills/my-precious-skill" \
          "$HOME/.codex" "$HOME/.grok/skills/xai-bundled" \
          "$HOME/.gemini" "$HOME/.cursor" "$HOME/.warp" \
-         "$HOME/.config/opencode"
+         "$HOME/.config/opencode" "$HOME/.hermes/skills/github"
 
 cat > "$HOME/.claude/CLAUDE.md" <<'EOF'
 # My existing rules
@@ -82,7 +82,8 @@ assert $? "canonical AGENTS.md seeded from existing ~/.claude/CLAUDE.md"
 echo; echo "=== T2: instruction wiring ==="
 for target in "$HOME/AGENTS.md" "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" \
               "$HOME/.warp/AGENTS.md" "$HOME/.cursor/AGENTS.md" "$HOME/.gemini/GEMINI.md" \
-              "$HOME/.grok/AGENTS.md" "$HOME/.config/opencode/AGENTS.md"; do
+              "$HOME/.grok/AGENTS.md" "$HOME/.config/opencode/AGENTS.md" \
+              "$HOME/.hermes/memories/AGENTS.md"; do
   [[ -L "$target" && "$(readlink "$target")" == "$FABRIC_HOME/AGENTS.md" ]]
   assert $? "symlink: $target -> canonical"
 done
@@ -96,7 +97,7 @@ assert $? "pre-existing GEMINI.md was backed up before replacement"
 # ── Test 3: skill fanout (additive) ──────────────────────────────────────────
 echo; echo "=== T3: skill fanout ==="
 for dir in "$HOME/.agents/skills" "$HOME/.claude/skills" "$HOME/.codex/skills" \
-           "$HOME/.grok/skills" "$HOME/.config/opencode/skills"; do
+           "$HOME/.grok/skills" "$HOME/.config/opencode/skills" "$HOME/.hermes/skills"; do
   [[ -L "$dir/agent-fabric" && -f "$dir/agent-fabric/SKILL.md" ]]
   assert $? "starter skill fanned out to $dir"
 done
@@ -106,6 +107,9 @@ assert $? "pre-existing user skill untouched (still a real dir)"
 
 [[ ! -L "$HOME/.grok/skills/xai-bundled" ]]
 assert $? "vendor-bundled grok skill untouched"
+
+[[ -d "$HOME/.hermes/skills/github" && ! -L "$HOME/.hermes/skills/github" ]]
+assert $? "hermes domain-taxonomy folder untouched"
 
 # ── Test 4: verify passes on a healthy install ───────────────────────────────
 echo; echo "=== T4: verify (healthy) ==="
@@ -175,7 +179,7 @@ assert $? "verify passes again after removing broken symlink"
 
 # ── Test 10: harness detection (absent harness not wired) ───────────────────
 echo; echo "=== T10: absent harness stays absent ==="
-[[ ! -e "$HOME/.hermes" ]]
+[[ ! -e "$HOME/.aider" && ! -e "$HOME/.gitgang" ]]
 assert $? "undetected harness dirs were not created by the fabric"
 
 # ── Summary ──────────────────────────────────────────────────────────────────

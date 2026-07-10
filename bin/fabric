@@ -36,14 +36,14 @@ pass_msg() { printf '%s[PASS]%s %s\n' "$GREEN" "$NC" "$*"; }
 # ── Harness registry (parallel arrays; bash 3.2 has no associative arrays) ──
 # A harness is wired only when its detect dir exists (meaning the tool is installed/used).
 # Instruction file per harness: symlinked to the hub's canonical AGENTS.md.
-H_NAMES=(generic claude codex warp cursor gemini grok opencode)
-H_DETECT=("$HOME" "$HOME/.claude" "$HOME/.codex" "$HOME/.warp" "$HOME/.cursor" "$HOME/.gemini" "$HOME/.grok" "$HOME/.config/opencode")
-H_INSTR=("$HOME/AGENTS.md" "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.warp/AGENTS.md" "$HOME/.cursor/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.grok/AGENTS.md" "$HOME/.config/opencode/AGENTS.md")
+H_NAMES=(generic claude codex warp cursor gemini grok opencode hermes)
+H_DETECT=("$HOME" "$HOME/.claude" "$HOME/.codex" "$HOME/.warp" "$HOME/.cursor" "$HOME/.gemini" "$HOME/.grok" "$HOME/.config/opencode" "$HOME/.hermes")
+H_INSTR=("$HOME/AGENTS.md" "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.warp/AGENTS.md" "$HOME/.cursor/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.grok/AGENTS.md" "$HOME/.config/opencode/AGENTS.md" "$HOME/.hermes/memories/AGENTS.md")
 
 # Skill fanout dirs, all ADDITIVE. ~/.agents/skills is always wired: Warp and
 # several other tools scan it, and it is a safe shared surface.
-S_DETECT=("$HOME" "$HOME/.claude" "$HOME/.codex" "$HOME/.grok" "$HOME/.config/opencode")
-S_DIRS=("$HOME/.agents/skills" "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.grok/skills" "$HOME/.config/opencode/skills")
+S_DETECT=("$HOME" "$HOME/.claude" "$HOME/.codex" "$HOME/.grok" "$HOME/.config/opencode" "$HOME/.hermes")
+S_DIRS=("$HOME/.agents/skills" "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.grok/skills" "$HOME/.config/opencode/skills" "$HOME/.hermes/skills")
 
 backup_if_real() {
   # Back up a path iff it exists and is NOT already a symlink.

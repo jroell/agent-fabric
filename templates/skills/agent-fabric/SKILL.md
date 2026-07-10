@@ -3,7 +3,8 @@ name: agent-fabric
 description: >-
   Operate, audit, repair, and extend the agent-fabric on this machine — the canonical
   hub (~/.agent-fabric) that shares skills, rules/instructions, and memory across ALL
-  agent harnesses (Claude Code, Codex, Warp, Cursor, Gemini CLI, Grok CLI, OpenCode).
+  agent harnesses (Claude Code, Codex, Warp, Cursor, Gemini CLI, Grok CLI, OpenCode,
+  Hermes).
   Use when the user asks to "audit my agent setup", "sync my agents", "add this
   skill/rule to all agents", "install a skill everywhere", "wire up a new agent",
   "share skills between agents", mentions agent-fabric / canonical skills / shared
@@ -26,9 +27,10 @@ The #1 job: **do the right thing without breaking the other agents.**
 ~/.agent-fabric/memory/          ← durable notes/facts agents should keep
         ↑ symlinked from
 ~/AGENTS.md, ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.cursor/AGENTS.md,
-~/.gemini/GEMINI.md, ~/.grok/AGENTS.md, ~/.config/opencode/AGENTS.md   (instructions)
+~/.gemini/GEMINI.md, ~/.grok/AGENTS.md, ~/.config/opencode/AGENTS.md,
+~/.hermes/memories/AGENTS.md                                           (instructions)
 ~/.agents/skills, ~/.claude/skills, ~/.codex/skills, ~/.grok/skills,
-~/.config/opencode/skills                                              (skills, additive)
+~/.config/opencode/skills, ~/.hermes/skills                            (skills, additive)
 ```
 
 ## Golden rules

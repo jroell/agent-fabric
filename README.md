@@ -67,11 +67,16 @@ It is idempotent — re-run it any time.
 | Gemini CLI | `~/.gemini/GEMINI.md` → hub | (no skills system) |
 | Grok CLI | `~/.grok/AGENTS.md` → hub | `~/.grok/skills/*` (additive) |
 | OpenCode | `~/.config/opencode/AGENTS.md` → hub | `~/.config/opencode/skills/*` (additive) |
+| Hermes | `~/.hermes/memories/AGENTS.md` → hub | `~/.hermes/skills/*` (additive) ² |
 | everything else | `~/AGENTS.md` → hub | `~/.agents/skills/*` (additive) |
 
 ¹ Warp's *global* Rules live in Warp's cloud settings (Settings → Rules) and can't be wired
 by file — paste your AGENTS.md highlights there once. Warp *does* automatically discover all
 fabric skills through `~/.agents/skills`.
+
+² Hermes organizes its own skills into domain folders (e.g. `github/`, `creative/`); fabric
+skills are added as flat top-level dirs alongside them, which Hermes also discovers. Its
+native memory system keeps working — the fabric only adds the shared instruction layer.
 
 **Additive** means the fabric never replaces an existing real skill in a harness's skill
 folder — your per-tool skills and vendor-bundled skills survive untouched.
@@ -133,7 +138,7 @@ rm -rf ~/.agent-fabric                  # remove the hub last
 
 - Optional shared adaptive memory via [Mem0](https://mem0.ai) MCP (config snippets per tool)
 - Linux support
-- More harnesses (Hermes, ForgeCode, Antigravity, gitgang)
+- More harnesses (ForgeCode, Antigravity, gitgang)
 
 ## License
 
