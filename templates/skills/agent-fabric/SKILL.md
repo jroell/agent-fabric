@@ -56,15 +56,20 @@ The #1 job: **do the right thing without breaking the other agents.**
 9. **Fix the tooling, not the symptom.** If wiring is wrong, fix it via `fabric sync`
    (or improve the fabric scripts) rather than hand-crafting one-off symlinks.
 
-## Commands (idempotent; end every fabric change with verify)
+## Commands (idempotent; end every fabric change with verify or doctor)
 
 ```bash
-~/.agent-fabric/bin/fabric sync       # wire instructions + fan out skills
-~/.agent-fabric/bin/fabric verify     # assert wiring + skill integrity; exit 1 on drift
-~/.agent-fabric/bin/fabric status     # which harnesses are detected/wired
+~/.agent-fabric/bin/fabric sync            # wire instructions + fan out skills
+~/.agent-fabric/bin/fabric sync --dry-run  # preview changes without writing — USE THIS FIRST
+~/.agent-fabric/bin/fabric verify          # topology + skill integrity; exit 1 on drift
+~/.agent-fabric/bin/fabric doctor          # effective-loading probes (stale copies, @-imports)
+~/.agent-fabric/bin/fabric status --json   # machine-readable harness/wiring state
 ~/.agent-fabric/bin/fabric add-skill <name>
 ~/.agent-fabric/bin/fabric adopt <existing-skill-dir>
 ```
+
+When making risky or bulk changes, run `sync --dry-run` first and `doctor` after — doctor
+catches what topology checks miss (stale copies that used to be symlinks, broken overlays).
 
 ## Playbooks
 

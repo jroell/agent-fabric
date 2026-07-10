@@ -2,21 +2,7 @@
 # fabric — operate the agent-fabric: one canonical hub for AI agent skills,
 # rules, and memory, symlinked into every agent harness on this machine.
 #
-# Commands:
-#   fabric sync              Wire instruction files + fan out skills to all detected harnesses
-#   fabric verify            Assert wiring is intact and skills are uncorrupted; exit 1 on drift
-#   fabric status            Show detected harnesses, wiring state, and skill count
-#   fabric add-skill <name>  Scaffold a new skill in the hub and fan it out
-#   fabric adopt <dir>       Move an existing skill dir into the hub (symlink left behind)
-#   fabric help              This help
-#
-# Design rules (learned the hard way — see the agent-fabric skill):
-#   * The hub is the single source of truth. Harnesses get SYMLINKS, never copies.
-#   * Fanout is ADDITIVE: an existing real file/dir in a harness is never replaced
-#     except canonical instruction files, which are backed up first.
-#   * Never write "through" a symlink without meaning to edit the canonical file.
-#
-# macOS only (uses BSD userland; tested on Apple Silicon, macOS 13+ for readlink -f).
+# macOS only (BSD userland; tested on Apple Silicon, macOS 13+ for readlink -f).
 
 set -uo pipefail
 
@@ -24,6 +10,7 @@ FABRIC_HOME="${FABRIC_HOME:-$HOME/.agent-fabric}"
 BACKUP_DIR="${FABRIC_HOME}/.backups/$(date +%Y-%m-%d)"
 CANONICAL="${FABRIC_HOME}/AGENTS.md"
 SKILLS_DIR="${FABRIC_HOME}/skills"
+DRY_RUN=0
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'; BLUE=$'\033[1;34m'; NC=$'\033[0m'
 
@@ -32,23 +19,64 @@ ok()   { printf '%s[ok]%s %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%s[warn]%s %s\n' "$YELLOW" "$NC" "$*" >&2; }
 fail_msg() { printf '%s[FAIL]%s %s\n' "$RED" "$NC" "$*"; }
 pass_msg() { printf '%s[PASS]%s %s\n' "$GREEN" "$NC" "$*"; }
+info_msg() { printf '%s[info]%s %s\n' "$YELLOW" "$NC" "$*"; }
 
-# ── Harness registry (parallel arrays; bash 3.2 has no associative arrays) ──
-# A harness is wired only when its detect dir exists (meaning the tool is installed/used).
-# Instruction file per harness: symlinked to the hub's canonical AGENTS.md.
-H_NAMES=(generic claude codex warp cursor gemini grok opencode hermes)
-H_DETECT=("$HOME" "$HOME/.claude" "$HOME/.codex" "$HOME/.warp" "$HOME/.cursor" "$HOME/.gemini" "$HOME/.grok" "$HOME/.config/opencode" "$HOME/.hermes")
-H_INSTR=("$HOME/AGENTS.md" "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.warp/AGENTS.md" "$HOME/.cursor/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.grok/AGENTS.md" "$HOME/.config/opencode/AGENTS.md" "$HOME/.hermes/memories/AGENTS.md")
+usage() {
+  cat <<EOF
+fabric — one canonical hub for AI agent skills, rules, and memory.
 
-# Skill fanout dirs, all ADDITIVE. ~/.agents/skills is always wired: Warp and
-# several other tools scan it, and it is a safe shared surface.
-S_DETECT=("$HOME" "$HOME/.claude" "$HOME/.codex" "$HOME/.grok" "$HOME/.config/opencode" "$HOME/.hermes")
-S_DIRS=("$HOME/.agents/skills" "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.grok/skills" "$HOME/.config/opencode/skills" "$HOME/.hermes/skills")
+Commands:
+  fabric sync [--dry-run]   Wire instruction files + fan out skills to detected harnesses.
+                            --dry-run prints what would change without writing.
+  fabric verify             Assert wiring topology + skill integrity; exit 1 on drift.
+  fabric doctor             Effective-loading probes: does each harness actually resolve
+                            the canonical content (not just have a symlink)? Exit 1 on failure.
+  fabric status [--json]    Show detected harnesses, strategies, wiring state, skill count.
+                            --json emits machine-readable output.
+  fabric add-skill <name>   Scaffold a new skill in the hub and fan it out.
+  fabric adopt <dir>        Move an existing skill dir into the hub (symlink left behind).
+  fabric help               This help.
 
+Design rules: the hub is the single source of truth; harnesses get SYMLINKS, never
+copies; skill fanout is additive (existing real dirs are never replaced); anything
+the fabric replaces is backed up to \$FABRIC_HOME/.backups/<date>/ first.
+EOF
+}
+
+# ── Harness registry ─────────────────────────────────────────────────────────
+# One record per harness. Fields (|-separated):
+#   name | detect_dir | instruction_path | instruction_strategy | skills_dir | skills_strategy | cli | note
+#
+# instruction_strategy:
+#   symlink  fabric manages a symlink at instruction_path -> canonical AGENTS.md
+#   manual   cannot be wired by file (e.g. Warp global Rules live in cloud settings);
+#            reported honestly instead of asserted
+# skills_strategy:
+#   additive fabric links hub skills into skills_dir without replacing existing entries
+#   none     harness has no (usable) skills dir; it may still see ~/.agents/skills
+# cli: binary name for presence probes in `fabric doctor` (may be empty)
+registry() {
+  cat <<EOF
+generic|$HOME|$HOME/AGENTS.md|symlink|$HOME/.agents/skills|additive||AGENTS.md convention + shared skills root (read by Warp and others)
+claude|$HOME/.claude|$HOME/.claude/CLAUDE.md|symlink|$HOME/.claude/skills|additive|claude|Claude Code
+codex|$HOME/.codex|$HOME/.codex/AGENTS.md|symlink|$HOME/.codex/skills|additive|codex|Codex CLI
+warp|$HOME/.warp|$HOME/.warp/AGENTS.md|manual||none||Warp global Rules are cloud-managed (Settings -> Rules); skills discovered via ~/.agents/skills
+cursor|$HOME/.cursor|$HOME/.cursor/AGENTS.md|symlink||none|cursor|Cursor (skills via ~/.agents/skills)
+gemini|$HOME/.gemini|$HOME/.gemini/GEMINI.md|symlink||none|gemini|Gemini CLI (no skills system)
+grok|$HOME/.grok|$HOME/.grok/AGENTS.md|symlink|$HOME/.grok/skills|additive|grok|Grok CLI (keeps xAI bundled skills)
+opencode|$HOME/.config/opencode|$HOME/.config/opencode/AGENTS.md|symlink|$HOME/.config/opencode/skills|additive|opencode|OpenCode
+hermes|$HOME/.hermes|$HOME/.hermes/memories/AGENTS.md|symlink|$HOME/.hermes/skills|additive|hermes|Hermes (only AGENTS.md is symlink-safe in memories/)
+EOF
+}
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
 backup_if_real() {
-  # Back up a path iff it exists and is NOT already a symlink.
   local path="$1"
   if [[ -e "$path" && ! -L "$path" ]]; then
+    if [[ "$DRY_RUN" == "1" ]]; then
+      log "[dry-run] would back up $path -> $BACKUP_DIR/"
+      return 0
+    fi
     mkdir -p "$BACKUP_DIR"
     local dest="${BACKUP_DIR}/${path//\//_}"
     cp -R "$path" "$dest" 2>/dev/null || true
@@ -57,12 +85,18 @@ backup_if_real() {
 }
 
 link_replace() {
-  # Install symlink at $2 pointing to $1, backing up any real file first.
   local source="$1" target="$2"
   [[ -e "$source" ]] || { warn "skip: $source does not exist"; return 0; }
+  if [[ -L "$target" && "$(readlink "$target")" == "$source" ]]; then
+    return 0  # already correct
+  fi
+  if [[ "$DRY_RUN" == "1" ]]; then
+    backup_if_real "$target"
+    log "[dry-run] would link $target -> $source"
+    return 0
+  fi
   mkdir -p "$(dirname "$target")"
   if [[ -L "$target" ]]; then
-    [[ "$(readlink "$target")" == "$source" ]] && return 0
     rm "$target"
   elif [[ -e "$target" ]]; then
     backup_if_real "$target"
@@ -73,45 +107,78 @@ link_replace() {
 }
 
 link_additive() {
-  # Install symlink at $2 only if nothing exists there. Never replaces.
   local source="$1" target="$2"
   [[ -e "$source" ]] || return 0
   [[ -e "$target" || -L "$target" ]] && return 0
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] would link (additive) $target -> $source"
+    return 0
+  fi
   mkdir -p "$(dirname "$target")"
   ln -s "$source" "$target"
   ok "linked (additive) $target -> $source"
 }
 
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '%s' "$s"
+}
+
+instr_state() {
+  # echo one of: wired | conflict | missing | manual
+  local instr="$1" strategy="$2"
+  if [[ "$strategy" == "manual" ]]; then echo "manual"; return; fi
+  if [[ -L "$instr" && "$(readlink "$instr")" == "$CANONICAL" ]]; then echo "wired"
+  elif [[ -e "$instr" ]]; then echo "conflict"
+  else echo "missing"
+  fi
+}
+
+# ── sync ─────────────────────────────────────────────────────────────────────
 cmd_sync() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dry-run) DRY_RUN=1 ;;
+      *) fail_msg "unknown sync option: $1"; exit 1 ;;
+    esac
+    shift
+  done
   [[ -d "$FABRIC_HOME" ]] || { fail_msg "hub $FABRIC_HOME missing — run install.sh first"; exit 1; }
   [[ -f "$CANONICAL" ]] || { fail_msg "$CANONICAL missing — run install.sh first"; exit 1; }
 
+  [[ "$DRY_RUN" == "1" ]] && log "DRY RUN — no changes will be written"
   log "wiring instruction files"
-  local i
-  for i in "${!H_NAMES[@]}"; do
-    if [[ -d "${H_DETECT[$i]}" ]]; then
-      link_replace "$CANONICAL" "${H_INSTR[$i]}"
-    fi
-  done
+  local name detect instr istrat sdir sstrat cli note skill sname
+  while IFS='|' read -r name detect instr istrat sdir sstrat cli note; do
+    [[ -n "$name" && -d "$detect" ]] || continue
+    case "$istrat" in
+      symlink) link_replace "$CANONICAL" "$instr" ;;
+      manual)  info_msg "$name: $note" ;;
+    esac
+  done <<EOF
+$(registry)
+EOF
 
   log "fanning out skills (additive)"
-  local dir skill name
-  for i in "${!S_DIRS[@]}"; do
-    [[ -d "${S_DETECT[$i]}" ]] || continue
-    dir="${S_DIRS[$i]}"
-    mkdir -p "$dir"
+  while IFS='|' read -r name detect instr istrat sdir sstrat cli note; do
+    [[ -n "$name" && -d "$detect" && "$sstrat" == "additive" && -n "$sdir" ]] || continue
+    [[ "$DRY_RUN" == "1" ]] || mkdir -p "$sdir"
     for skill in "$SKILLS_DIR"/*/; do
       [[ -d "$skill" ]] || continue
-      name="$(basename "$skill")"
-      link_additive "${skill%/}" "$dir/$name"
+      sname="$(basename "$skill")"
+      link_additive "${skill%/}" "$sdir/$sname"
     done
-  done
+  done <<EOF
+$(registry)
+EOF
   log "sync done"
 }
 
+# ── verify (topology + integrity) ────────────────────────────────────────────
 FAILS=0
 check() {
-  # check <ok?> <message>
   if [[ "$1" == "0" ]]; then pass_msg "$2"; else fail_msg "$2"; FAILS=$((FAILS + 1)); fi
 }
 
@@ -121,29 +188,40 @@ cmd_verify() {
   [[ -d "$FABRIC_HOME" ]]; check $? "hub exists: $FABRIC_HOME"
   [[ -f "$CANONICAL" && -s "$CANONICAL" && ! -L "$CANONICAL" ]]; check $? "canonical AGENTS.md is a real, non-empty file"
 
-  local i target
-  for i in "${!H_NAMES[@]}"; do
-    [[ -d "${H_DETECT[$i]}" ]] || continue
-    target="${H_INSTR[$i]}"
-    if [[ -L "$target" && "$(readlink "$target")" == "$CANONICAL" ]]; then
-      pass_msg "${H_NAMES[$i]}: $target -> canonical"
-    else
-      fail_msg "${H_NAMES[$i]}: $target not symlinked to canonical (run: fabric sync)"
-      FAILS=$((FAILS + 1))
-    fi
-  done
+  local name detect instr istrat sdir sstrat cli note state
+  local fanout_dirs=""
+  while IFS='|' read -r name detect instr istrat sdir sstrat cli note; do
+    [[ -n "$name" && -d "$detect" ]] || continue
+    [[ "$sstrat" == "additive" && -n "$sdir" ]] && fanout_dirs="$fanout_dirs $sdir"
+    case "$istrat" in
+      manual)
+        warn "$name: instructions are manual — $note"
+        ;;
+      symlink)
+        state="$(instr_state "$instr" "$istrat")"
+        if [[ "$state" == "wired" ]]; then
+          pass_msg "$name: $instr -> canonical"
+        else
+          fail_msg "$name: $instr is $state (run: fabric sync)"
+          FAILS=$((FAILS + 1))
+        fi
+        ;;
+    esac
+  done <<EOF
+$(registry)
+EOF
 
   # Broken symlinks in hub + fanout dirs
   local broken=0 link_path
   while IFS= read -r link_path; do
     [[ -n "$link_path" ]] || continue
     broken=$((broken + 1)); fail_msg "broken symlink: $link_path"; FAILS=$((FAILS + 1))
-  done < <(find "$SKILLS_DIR" "${S_DIRS[@]}" -maxdepth 1 -type l ! -exec test -e {} \; -print 2>/dev/null)
+  done <<EOF
+$(find "$SKILLS_DIR" $fanout_dirs -maxdepth 1 -type l ! -exec test -e {} \; -print 2>/dev/null)
+EOF
   [[ "$broken" -eq 0 ]] && pass_msg "no broken skill symlinks"
 
   # Skill integrity: frontmatter present + known corruption signatures absent.
-  # (A naive YAML rewriter once turned folded descriptions into the literal
-  # string ">-" across an entire machine — this catches that class of damage.)
   local skill sf bad=0
   for skill in "$SKILLS_DIR"/*/; do
     [[ -d "$skill" ]] || continue
@@ -169,26 +247,148 @@ cmd_verify() {
   return 1
 }
 
-cmd_status() {
-  log "hub: $FABRIC_HOME"
-  local count=0 skill
-  for skill in "$SKILLS_DIR"/*/; do [[ -d "$skill" ]] && count=$((count + 1)); done
-  log "skills in hub: $count"
-  local i state
-  for i in "${!H_NAMES[@]}"; do
-    if [[ ! -d "${H_DETECT[$i]}" ]]; then
-      printf '  %-10s not detected\n' "${H_NAMES[$i]}"
-      continue
+# ── doctor (effective-loading probes) ────────────────────────────────────────
+cmd_doctor() {
+  log "probing effective instruction loading (beyond symlink topology)"
+  local canon_resolved
+  canon_resolved="$(readlink -f "$CANONICAL" 2>/dev/null || echo '')"
+  [[ -n "$canon_resolved" && -s "$canon_resolved" ]]; check $? "canonical resolves and is non-empty"
+
+  local name detect instr istrat sdir sstrat cli note resolved
+  while IFS='|' read -r name detect instr istrat sdir sstrat cli note; do
+    [[ -n "$name" && -d "$detect" ]] || continue
+
+    # CLI presence (informational — a harness may be config-dir only)
+    if [[ -n "$cli" ]]; then
+      if command -v "$cli" >/dev/null 2>&1; then
+        pass_msg "$name: CLI '$cli' found on PATH"
+      else
+        warn "$name: CLI '$cli' not on PATH (config dir exists; probe skipped)"
+      fi
     fi
-    if [[ -L "${H_INSTR[$i]}" && "$(readlink "${H_INSTR[$i]}")" == "$CANONICAL" ]]; then
-      state="wired"
-    else
-      state="NOT WIRED (fabric sync)"
+
+    case "$istrat" in
+      manual)
+        info_msg "$name: MANUAL/unverifiable — $note"
+        ;;
+      symlink)
+        if [[ ! -e "$instr" ]]; then
+          fail_msg "$name: $instr missing — harness loads nothing"; FAILS=$((FAILS + 1))
+        else
+          resolved="$(readlink -f "$instr" 2>/dev/null || echo '')"
+          if [[ -n "$resolved" && "$resolved" == "$canon_resolved" ]]; then
+            pass_msg "$name: instruction path resolves to canonical content"
+          elif [[ -f "$instr" ]] && grep -q '^@' "$instr" && grep -q "$(basename "$CANONICAL")" "$instr"; then
+            pass_msg "$name: overlay file imports canonical via @-import"
+          elif [[ -f "$instr" ]] && cmp -s "$instr" "$CANONICAL"; then
+            warn "$name: $instr is a byte-identical COPY (works today, will drift — prefer symlink)"
+          else
+            fail_msg "$name: $instr does NOT resolve to canonical (stale or divergent content)"
+            FAILS=$((FAILS + 1))
+          fi
+        fi
+        ;;
+    esac
+
+    # Skills: every fanned-out entry must resolve
+    if [[ "$sstrat" == "additive" && -n "$sdir" && -d "$sdir" ]]; then
+      local broken
+      broken="$(find "$sdir" -maxdepth 1 -type l ! -exec test -e {} \; -print 2>/dev/null | wc -l | tr -d ' ')"
+      if [[ "$broken" == "0" ]]; then
+        pass_msg "$name: all skill links in $sdir resolve"
+      else
+        fail_msg "$name: $broken broken skill link(s) in $sdir"; FAILS=$((FAILS + 1))
+      fi
     fi
-    printf '  %-10s %s  [%s]\n' "${H_NAMES[$i]}" "${H_INSTR[$i]}" "$state"
-  done
+  done <<EOF
+$(registry)
+EOF
+
+  echo
+  log "deeper per-tool diagnostics (run manually; not invoked automatically):"
+  echo "  claude /doctor · codex doctor · grok (inspect) · gemini (about) · opencode mcp · hermes doctor"
+  echo
+  if [[ "$FAILS" -eq 0 ]]; then
+    printf '%sAll doctor probes passed.%s\n' "$GREEN" "$NC"
+    return 0
+  fi
+  printf '%s%d doctor probe(s) failed.%s\n' "$RED" "$FAILS" "$NC"
+  return 1
 }
 
+# ── status ───────────────────────────────────────────────────────────────────
+cmd_status() {
+  local as_json=0
+  [[ "${1:-}" == "--json" ]] && as_json=1
+
+  local skills=() skill
+  for skill in "$SKILLS_DIR"/*/; do
+    [[ -d "$skill" ]] && skills[${#skills[@]}]="$(basename "$skill")"
+  done
+
+  if [[ "$as_json" == "0" ]]; then
+    log "hub: $FABRIC_HOME"
+    log "skills in hub: ${#skills[@]}"
+    local name detect instr istrat sdir sstrat cli note state
+    while IFS='|' read -r name detect instr istrat sdir sstrat cli note; do
+      [[ -n "$name" ]] || continue
+      if [[ ! -d "$detect" ]]; then
+        printf '  %-10s not detected\n' "$name"
+        continue
+      fi
+      state="$(instr_state "$instr" "$istrat")"
+      printf '  %-10s instructions: %-8s [%s]' "$name" "$istrat" "$state"
+      [[ "$sstrat" == "additive" ]] && printf '  skills: %s' "$sdir"
+      printf '\n'
+    done <<EOF
+$(registry)
+EOF
+    return 0
+  fi
+
+  # JSON mode
+  printf '{'
+  printf '"fabric_home":"%s",' "$(json_escape "$FABRIC_HOME")"
+  printf '"canonical":"%s",' "$(json_escape "$CANONICAL")"
+  printf '"skill_count":%d,' "${#skills[@]}"
+  printf '"skills":['
+  local first=1 s
+  for s in ${skills[@]+"${skills[@]}"}; do
+    [[ "$first" == "1" ]] || printf ','
+    printf '"%s"' "$(json_escape "$s")"
+    first=0
+  done
+  printf '],'
+  printf '"harnesses":['
+  first=1
+  local name detect instr istrat sdir sstrat cli note state detected linked
+  while IFS='|' read -r name detect instr istrat sdir sstrat cli note; do
+    [[ -n "$name" ]] || continue
+    [[ "$first" == "1" ]] || printf ','
+    first=0
+    if [[ -d "$detect" ]]; then detected=true; else detected=false; fi
+    state="$(instr_state "$instr" "$istrat")"
+    [[ "$detected" == "false" ]] && state="not-detected"
+    printf '{"name":"%s","detected":%s,' "$(json_escape "$name")" "$detected"
+    printf '"instructions":{"path":"%s","strategy":"%s","state":"%s"},' \
+      "$(json_escape "$instr")" "$(json_escape "$istrat")" "$(json_escape "$state")"
+    linked=0
+    if [[ "$sstrat" == "additive" && -n "$sdir" && -d "$sdir" ]]; then
+      for s in ${skills[@]+"${skills[@]}"}; do
+        [[ -e "$sdir/$s" ]] && linked=$((linked + 1))
+      done
+    fi
+    printf '"skills":{"path":"%s","strategy":"%s","linked":%d},' \
+      "$(json_escape "$sdir")" "$(json_escape "$sstrat")" "$linked"
+    printf '"note":"%s"}' "$(json_escape "$note")"
+  done <<EOF
+$(registry)
+EOF
+  printf ']}'
+  printf '\n'
+}
+
+# ── add-skill / adopt ────────────────────────────────────────────────────────
 cmd_add_skill() {
   local name="${1:-}"
   [[ -n "$name" ]] || { fail_msg "usage: fabric add-skill <name>"; exit 1; }
@@ -227,12 +427,15 @@ cmd_adopt() {
   cmd_sync
 }
 
-case "${1:-help}" in
-  sync)      cmd_sync ;;
+# ── dispatch ─────────────────────────────────────────────────────────────────
+cmd="${1:-help}"
+case "$cmd" in
+  sync)      shift; cmd_sync "$@" ;;
   verify)    cmd_verify ;;
-  status)    cmd_status ;;
+  doctor)    cmd_doctor ;;
+  status)    shift 2>/dev/null || true; cmd_status "${1:-}" ;;
   add-skill) shift; cmd_add_skill "${1:-}" ;;
   adopt)     shift; cmd_adopt "${1:-}" ;;
-  help|--help|-h) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) fail_msg "unknown command: $1 (try: fabric help)"; exit 1 ;;
+  help|--help|-h) usage ;;
+  *) fail_msg "unknown command: $cmd (try: fabric help)"; exit 1 ;;
 esac

@@ -81,12 +81,17 @@ assert $? "canonical AGENTS.md seeded from existing ~/.claude/CLAUDE.md"
 # ── Test 2: instruction symlinks ─────────────────────────────────────────────
 echo; echo "=== T2: instruction wiring ==="
 for target in "$HOME/AGENTS.md" "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" \
-              "$HOME/.warp/AGENTS.md" "$HOME/.cursor/AGENTS.md" "$HOME/.gemini/GEMINI.md" \
+              "$HOME/.cursor/AGENTS.md" "$HOME/.gemini/GEMINI.md" \
               "$HOME/.grok/AGENTS.md" "$HOME/.config/opencode/AGENTS.md" \
               "$HOME/.hermes/memories/AGENTS.md"; do
   [[ -L "$target" && "$(readlink "$target")" == "$FABRIC_HOME/AGENTS.md" ]]
   assert $? "symlink: $target -> canonical"
 done
+
+# Warp global Rules are cloud-managed: the fabric must NOT create a file that
+# implies otherwise (honest 'manual' strategy).
+[[ ! -e "$HOME/.warp/AGENTS.md" ]]
+assert $? "warp instruction file intentionally not created (cloud-managed, reported as manual)"
 
 ls "$FABRIC_HOME/.backups"/*/ 2>/dev/null | grep -q 'CLAUDE.md'
 assert $? "pre-existing CLAUDE.md was backed up before replacement"
@@ -194,6 +199,88 @@ assert $? "no hub was created by the refused install"
 env HOME="$GUARD_HOME" FABRIC_HOME="$GUARD_HOME/.agent-fabric" bash "$REPO_DIR/install.sh" >/dev/null 2>&1
 assert $? "explicit FABRIC_HOME overrides the guard"
 rm -rf "$GUARD_HOME"
+
+# ── Test 12: sync --dry-run makes no changes ────────────────────────────
+echo; echo "=== T12: sync --dry-run ==="
+rm "$HOME/.codex/AGENTS.md"
+DRY_OUT="$("$FABRIC" sync --dry-run 2>/dev/null)"
+echo "$DRY_OUT" | grep -q 'would link .*\.codex/AGENTS.md'
+assert $? "dry-run reports the missing codex link as 'would link'"
+[[ ! -e "$HOME/.codex/AGENTS.md" ]]
+assert $? "dry-run did not actually create the link"
+"$FABRIC" sync >/dev/null 2>&1
+[[ -L "$HOME/.codex/AGENTS.md" ]]
+assert $? "real sync restores the link"
+
+# ── Test 13: status --json is valid and complete ──────────────────────────
+echo; echo "=== T13: status --json ==="
+"$FABRIC" status --json > /tmp/agent-fabric-status.json 2>/dev/null
+assert $? "status --json exits 0"
+python3 - <<'PYEOF'
+import json, sys, os
+d = json.load(open('/tmp/agent-fabric-status.json'))
+assert d['fabric_home'].endswith('/.agent-fabric'), d['fabric_home']
+assert d['skill_count'] >= 1 and 'agent-fabric' in d['skills']
+names = {h['name']: h for h in d['harnesses']}
+assert names['warp']['instructions']['strategy'] == 'manual'
+assert names['warp']['instructions']['state'] == 'manual'
+assert names['codex']['instructions']['state'] == 'wired'
+assert names['codex']['skills']['linked'] >= 1
+assert names['claude']['detected'] is True
+PYEOF
+assert $? "status --json parses and reports strategies/states correctly"
+
+# ── Test 14: doctor (effective-loading probes) ────────────────────────────
+echo; echo "=== T14: doctor ==="
+"$FABRIC" doctor >/dev/null 2>&1
+assert $? "doctor passes on a healthy install"
+# Simulate a stale divergent copy: replace the codex symlink with edited content
+rm "$HOME/.codex/AGENTS.md"
+cp "$FABRIC_HOME/AGENTS.md" "$HOME/.codex/AGENTS.md"
+echo 'stale drift' >> "$HOME/.codex/AGENTS.md"
+"$FABRIC" doctor >/dev/null 2>&1
+[[ $? -ne 0 ]]
+assert $? "doctor fails on a stale divergent instruction copy (verify-topology alone would too, but doctor names the cause)"
+"$FABRIC" sync >/dev/null 2>&1 && "$FABRIC" doctor >/dev/null 2>&1
+assert $? "sync repairs; doctor passes again"
+# Overlay import pattern: real file that @-imports canonical must PASS doctor
+rm "$HOME/.claude/CLAUDE.md"
+printf '# overlay\n\n@%s\n\nextra claude-only notes\n' "$FABRIC_HOME/AGENTS.md" > "$HOME/.claude/CLAUDE.md"
+"$FABRIC" doctor >/dev/null 2>&1
+assert $? "doctor accepts an overlay file with a real @-import of canonical"
+"$FABRIC" sync >/dev/null 2>&1  # restore symlink topology for remaining tests
+
+# ── Test 15: install --adopt (existing hand-rolled hub) ─────────────────────
+echo; echo "=== T15: install --adopt ==="
+ADOPT_HOME="$(mktemp -d /tmp/agent-fabric-adopt.XXXXXX)"
+mkdir -p "$ADOPT_HOME/.shared-agent-memory/skills/legacy-skill" \
+         "$ADOPT_HOME/.codex" "$ADOPT_HOME/.claude/skills"
+printf '# my hub rules\nSENTINEL-ADOPT-77\n' > "$ADOPT_HOME/.shared-agent-memory/AGENTS.md"
+cat > "$ADOPT_HOME/.shared-agent-memory/skills/legacy-skill/SKILL.md" <<'EOF'
+---
+name: legacy-skill
+description: A pre-existing hub skill that must survive adoption.
+---
+legacy content
+EOF
+env -u FABRIC_HOME HOME="$ADOPT_HOME" bash "$REPO_DIR/install.sh" --adopt >/tmp/agent-fabric-adopt.log 2>&1
+assert $? "install --adopt exits 0 (log: /tmp/agent-fabric-adopt.log)"
+ADOPTED="$ADOPT_HOME/.shared-agent-memory"
+grep -q 'SENTINEL-ADOPT-77' "$ADOPTED/AGENTS.md"
+assert $? "adopted hub AGENTS.md content preserved (not replaced by template)"
+[[ -x "$ADOPTED/bin/fabric" ]]
+assert $? "fabric CLI installed into adopted hub"
+[[ -L "$ADOPT_HOME/.codex/AGENTS.md" && "$(readlink "$ADOPT_HOME/.codex/AGENTS.md")" == "$ADOPTED/AGENTS.md" ]]
+assert $? "harness instructions wired to the ADOPTED hub, not a new one"
+[[ ! -e "$ADOPT_HOME/.agent-fabric" ]]
+assert $? "no second hub was created"
+[[ -e "$ADOPT_HOME/.codex/skills/legacy-skill" ]]
+assert $? "pre-existing hub skill fanned out to harnesses"
+[[ -e "$ADOPTED/skills/agent-fabric" ]]
+assert $? "starter skill added to adopted hub"
+env -u FABRIC_HOME HOME="$ADOPT_HOME" "$ADOPTED/bin/fabric" verify >/dev/null 2>&1
+assert $? "installed CLI works without FABRIC_HOME exported (baked default)"
+rm -rf "$ADOPT_HOME"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo

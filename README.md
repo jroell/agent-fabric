@@ -56,6 +56,22 @@ The installer:
 
 It is idempotent — re-run it any time.
 
+### Already have a hand-rolled hub?
+
+If the installer detects an existing `~/.shared-agent-memory` hub it will refuse to create
+a second source of truth. Adopt your existing hub in place instead — content is preserved,
+the `fabric` CLI and starter skill are added, and every harness gets wired to *your* hub:
+
+```bash
+./install.sh --adopt                 # adopts ~/.shared-agent-memory
+./install.sh --adopt /path/to/hub    # adopts a custom hub location
+# curl-pipe form:
+curl -fsSL https://raw.githubusercontent.com/jroell/agent-fabric/main/install.sh | bash -s -- --adopt
+```
+
+The hub must have an `AGENTS.md` at its root; `skills/` is created if missing. The installed
+CLI bakes in your hub path, so `FABRIC_HOME` never needs to be exported.
+
 ## What gets wired
 
 | Harness | Instructions | Skills |
@@ -102,10 +118,19 @@ folder — your per-tool skills and vendor-bundled skills survive untouched.
 fabric add-skill code-review     # scaffold a skill; instantly available to every agent
 fabric adopt ~/.claude/skills/x  # promote an existing per-tool skill to all agents
 $EDITOR ~/.agent-fabric/AGENTS.md   # edit rules once, all agents see it
-fabric verify                    # health check — exits 1 on any drift or corruption
-fabric status                    # which harnesses are detected and wired
+fabric verify                    # topology + integrity check — exits 1 on drift/corruption
+fabric doctor                    # effective-loading probes: does each harness actually
+                                 #   resolve canonical content? catches stale copies and
+                                 #   validates @-import overlays; reports Warp as manual
+fabric status                    # which harnesses are detected, their strategies + state
+fabric status --json             # same, machine-readable (for scripts/CI/backup jobs)
 fabric sync                      # re-wire (idempotent; run after installing a new agent)
+fabric sync --dry-run            # preview exactly what sync would change, write nothing
 ```
+
+Every harness is described by a **registry** in `bin/fabric` recording its detection dir,
+instruction path + strategy (`symlink` or `manual`), skills dir + strategy (`additive` or
+`none`), and CLI name for probes — adding a harness is one registry line.
 
 Put it on your PATH: `echo 'export PATH="$HOME/.agent-fabric/bin:$PATH"' >> ~/.zshrc`
 
@@ -152,12 +177,8 @@ rm -rf ~/.agent-fabric                  # remove the hub last
 ## Roadmap
 
 - Optional shared adaptive memory via [Mem0](https://mem0.ai) MCP (config snippets per tool)
-- Detect-and-adopt installer mode: adopt an existing hand-rolled hub in place instead of
-  refusing (the installer currently aborts if it finds one, to avoid two sources of truth)
-- Harness registry with per-tool instruction/skill/memory strategies, `--dry-run`, and
-  machine-readable `fabric status --json`
-- Effective-loading verification (probe each harness's own CLI to confirm rules/skills are
-  actually ingested, not just symlinked)
+- Deep runtime probes in `fabric doctor` (invoke each harness's own diagnostics — e.g.
+  `grok inspect`, `hermes doctor` — where versions support it non-interactively)
 - Linux support
 - More harnesses (ForgeCode, Antigravity, gitgang)
 
