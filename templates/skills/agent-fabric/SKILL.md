@@ -49,7 +49,11 @@ The #1 job: **do the right thing without breaking the other agents.**
 6. **Warp exception:** Warp's global Rules live in its cloud settings, not `~/.warp/AGENTS.md`.
    Warp still discovers all fabric skills via `~/.agents/skills`.
 7. **Gemini CLI reads `~/.gemini/GEMINI.md`**, not AGENTS.md; the fabric wires that path.
-8. **Fix the tooling, not the symptom.** If wiring is wrong, fix it via `fabric sync`
+8. **Hermes exceptions:** in `~/.hermes/memories/` only `AGENTS.md` may be a symlink —
+   Hermes's memory-repair de-symlinks `MEMORY.md`/`USER.md` and rewrites them as real files.
+   Hermes's curator may archive unused fabric skill links to `~/.hermes/skills/.archive/`
+   (`hermes curator restore <name>` recovers them; the hub copy is never affected).
+9. **Fix the tooling, not the symptom.** If wiring is wrong, fix it via `fabric sync`
    (or improve the fabric scripts) rather than hand-crafting one-off symlinks.
 
 ## Commands (idempotent; end every fabric change with verify)

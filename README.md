@@ -77,6 +77,21 @@ fabric skills through `~/.agents/skills`.
 ² Hermes organizes its own skills into domain folders (e.g. `github/`, `creative/`); fabric
 skills are added as flat top-level dirs alongside them, which Hermes also discovers. Its
 native memory system keeps working — the fabric only adds the shared instruction layer.
+This wiring pattern has been validated against a live, long-running Hermes installation.
+Known Hermes edge cases:
+
+- **Only `AGENTS.md` is safe to symlink in `~/.hermes/memories/`.** Hermes owns the other
+  files there (`MEMORY.md`, `USER.md`, locks) and its memory-repair mechanism will detect a
+  symlinked `MEMORY.md`, back the symlink up, and replace it with a real file. The fabric
+  deliberately wires only `AGENTS.md`, which repair leaves alone — don't hand-link the rest.
+- **Hermes's curator archives stale skills.** Skills unused for long enough get moved to
+  `~/.hermes/skills/.archive/` (recoverable with `hermes curator restore <name>`). If a
+  fabric skill gets archived, the next `fabric sync` will re-link it — so a skill Hermes
+  never uses may bounce between archived and re-linked. Harmless (the hub copy is never
+  affected), but if you want Hermes to stop seeing a fabric skill permanently, remove its
+  symlink from `~/.hermes/skills/` — note the next `fabric sync` will restore it.
+- **Fresh installs:** `~/.hermes/memories/` may not exist until Hermes first runs; the
+  fabric creates it when wiring, and Hermes adopts the directory normally afterwards.
 
 **Additive** means the fabric never replaces an existing real skill in a harness's skill
 folder — your per-tool skills and vendor-bundled skills survive untouched.
