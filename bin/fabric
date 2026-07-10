@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# fabric — operate the agent-fabric: one canonical hub for AI agent skills,
+# rules, and memory, symlinked into every agent harness on this machine.
+#
+# Commands:
+#   fabric sync              Wire instruction files + fan out skills to all detected harnesses
+#   fabric verify            Assert wiring is intact and skills are uncorrupted; exit 1 on drift
+#   fabric status            Show detected harnesses, wiring state, and skill count
+#   fabric add-skill <name>  Scaffold a new skill in the hub and fan it out
+#   fabric adopt <dir>       Move an existing skill dir into the hub (symlink left behind)
+#   fabric help              This help
+#
+# Design rules (learned the hard way — see the agent-fabric skill):
+#   * The hub is the single source of truth. Harnesses get SYMLINKS, never copies.
+#   * Fanout is ADDITIVE: an existing real file/dir in a harness is never replaced
+#     except canonical instruction files, which are backed up first.
+#   * Never write "through" a symlink without meaning to edit the canonical file.
+#
+# macOS only (uses BSD userland; tested on Apple Silicon, macOS 13+ for readlink -f).
+
+set -uo pipefail
+
+FABRIC_HOME="${FABRIC_HOME:-$HOME/.agent-fabric}"
+BACKUP_DIR="${FABRIC_HOME}/.backups/$(date +%Y-%m-%d)"
+CANONICAL="${FABRIC_HOME}/AGENTS.md"
+SKILLS_DIR="${FABRIC_HOME}/skills"
+
+RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'; BLUE=$'\033[1;34m'; NC=$'\033[0m'
+
+log()  { printf '%s[fabric]%s %s\n' "$BLUE" "$NC" "$*"; }
+ok()   { printf '%s[ok]%s %s\n' "$GREEN" "$NC" "$*"; }
+warn() { printf '%s[warn]%s %s\n' "$YELLOW" "$NC" "$*" >&2; }
+fail_msg() { printf '%s[FAIL]%s %s\n' "$RED" "$NC" "$*"; }
+pass_msg() { printf '%s[PASS]%s %s\n' "$GREEN" "$NC" "$*"; }
+
+# ── Harness registry (parallel arrays; bash 3.2 has no associative arrays) ──
+# A harness is wired only when its detect dir exists (meaning the tool is installed/used).
+# Instruction file per harness: symlinked to the hub's canonical AGENTS.md.
+H_NAMES=(generic claude codex warp cursor gemini grok opencode)
+H_DETECT=("$HOME" "$HOME/.claude" "$HOME/.codex" "$HOME/.warp" "$HOME/.cursor" "$HOME/.gemini" "$HOME/.grok" "$HOME/.config/opencode")
+H_INSTR=("$HOME/AGENTS.md" "$HOME/.claude/CLAUDE.md" "$HOME/.codex/AGENTS.md" "$HOME/.warp/AGENTS.md" "$HOME/.cursor/AGENTS.md" "$HOME/.gemini/GEMINI.md" "$HOME/.grok/AGENTS.md" "$HOME/.config/opencode/AGENTS.md")
+
+# Skill fanout dirs, all ADDITIVE. ~/.agents/skills is always wired: Warp and
+# several other tools scan it, and it is a safe shared surface.
+S_DETECT=("$HOME" "$HOME/.claude" "$HOME/.codex" "$HOME/.grok" "$HOME/.config/opencode")
+S_DIRS=("$HOME/.agents/skills" "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.grok/skills" "$HOME/.config/opencode/skills")
+
+backup_if_real() {
+  # Back up a path iff it exists and is NOT already a symlink.
+  local path="$1"
+  if [[ -e "$path" && ! -L "$path" ]]; then
+    mkdir -p "$BACKUP_DIR"
+    local dest="${BACKUP_DIR}/${path//\//_}"
+    cp -R "$path" "$dest" 2>/dev/null || true
+    log "backed up $path -> $dest"
+  fi
+}
+
+link_replace() {
+  # Install symlink at $2 pointing to $1, backing up any real file first.
+  local source="$1" target="$2"
+  [[ -e "$source" ]] || { warn "skip: $source does not exist"; return 0; }
+  mkdir -p "$(dirname "$target")"
+  if [[ -L "$target" ]]; then
+    [[ "$(readlink "$target")" == "$source" ]] && return 0
+    rm "$target"
+  elif [[ -e "$target" ]]; then
+    backup_if_real "$target"
+    rm -rf "$target"
+  fi
+  ln -s "$source" "$target"
+  ok "linked $target -> $source"
+}
+
+link_additive() {
+  # Install symlink at $2 only if nothing exists there. Never replaces.
+  local source="$1" target="$2"
+  [[ -e "$source" ]] || return 0
+  [[ -e "$target" || -L "$target" ]] && return 0
+  mkdir -p "$(dirname "$target")"
+  ln -s "$source" "$target"
+  ok "linked (additive) $target -> $source"
+}
+
+cmd_sync() {
+  [[ -d "$FABRIC_HOME" ]] || { fail_msg "hub $FABRIC_HOME missing — run install.sh first"; exit 1; }
+  [[ -f "$CANONICAL" ]] || { fail_msg "$CANONICAL missing — run install.sh first"; exit 1; }
+
+  log "wiring instruction files"
+  local i
+  for i in "${!H_NAMES[@]}"; do
+    if [[ -d "${H_DETECT[$i]}" ]]; then
+      link_replace "$CANONICAL" "${H_INSTR[$i]}"
+    fi
+  done
+
+  log "fanning out skills (additive)"
+  local dir skill name
+  for i in "${!S_DIRS[@]}"; do
+    [[ -d "${S_DETECT[$i]}" ]] || continue
+    dir="${S_DIRS[$i]}"
+    mkdir -p "$dir"
+    for skill in "$SKILLS_DIR"/*/; do
+      [[ -d "$skill" ]] || continue
+      name="$(basename "$skill")"
+      link_additive "${skill%/}" "$dir/$name"
+    done
+  done
+  log "sync done"
+}
+
+FAILS=0
+check() {
+  # check <ok?> <message>
+  if [[ "$1" == "0" ]]; then pass_msg "$2"; else fail_msg "$2"; FAILS=$((FAILS + 1)); fi
+}
+
+cmd_verify() {
+  log "verifying fabric wiring"
+
+  [[ -d "$FABRIC_HOME" ]]; check $? "hub exists: $FABRIC_HOME"
+  [[ -f "$CANONICAL" && -s "$CANONICAL" && ! -L "$CANONICAL" ]]; check $? "canonical AGENTS.md is a real, non-empty file"
+
+  local i target
+  for i in "${!H_NAMES[@]}"; do
+    [[ -d "${H_DETECT[$i]}" ]] || continue
+    target="${H_INSTR[$i]}"
+    if [[ -L "$target" && "$(readlink "$target")" == "$CANONICAL" ]]; then
+      pass_msg "${H_NAMES[$i]}: $target -> canonical"
+    else
+      fail_msg "${H_NAMES[$i]}: $target not symlinked to canonical (run: fabric sync)"
+      FAILS=$((FAILS + 1))
+    fi
+  done
+
+  # Broken symlinks in hub + fanout dirs
+  local broken=0 link_path
+  while IFS= read -r link_path; do
+    [[ -n "$link_path" ]] || continue
+    broken=$((broken + 1)); fail_msg "broken symlink: $link_path"; FAILS=$((FAILS + 1))
+  done < <(find "$SKILLS_DIR" "${S_DIRS[@]}" -maxdepth 1 -type l ! -exec test -e {} \; -print 2>/dev/null)
+  [[ "$broken" -eq 0 ]] && pass_msg "no broken skill symlinks"
+
+  # Skill integrity: frontmatter present + known corruption signatures absent.
+  # (A naive YAML rewriter once turned folded descriptions into the literal
+  # string ">-" across an entire machine — this catches that class of damage.)
+  local skill sf bad=0
+  for skill in "$SKILLS_DIR"/*/; do
+    [[ -d "$skill" ]] || continue
+    sf="$skill/SKILL.md"
+    if [[ ! -f "$sf" ]]; then
+      fail_msg "missing SKILL.md: $skill"; FAILS=$((FAILS + 1)); bad=1; continue
+    fi
+    if ! head -5 "$sf" | grep -q '^name:'; then
+      fail_msg "missing 'name:' frontmatter: $sf"; FAILS=$((FAILS + 1)); bad=1
+    fi
+    if grep -qE '^description: ">-"$|^## MANUAL MIGRATION REQUIRED$' "$sf"; then
+      fail_msg "corrupted frontmatter / migration residue: $sf"; FAILS=$((FAILS + 1)); bad=1
+    fi
+  done
+  [[ "$bad" -eq 0 ]] && pass_msg "all hub skills have intact frontmatter"
+
+  echo
+  if [[ "$FAILS" -eq 0 ]]; then
+    printf '%sAll fabric checks passed.%s\n' "$GREEN" "$NC"
+    return 0
+  fi
+  printf '%s%d fabric check(s) failed.%s\n' "$RED" "$FAILS" "$NC"
+  return 1
+}
+
+cmd_status() {
+  log "hub: $FABRIC_HOME"
+  local count=0 skill
+  for skill in "$SKILLS_DIR"/*/; do [[ -d "$skill" ]] && count=$((count + 1)); done
+  log "skills in hub: $count"
+  local i state
+  for i in "${!H_NAMES[@]}"; do
+    if [[ ! -d "${H_DETECT[$i]}" ]]; then
+      printf '  %-10s not detected\n' "${H_NAMES[$i]}"
+      continue
+    fi
+    if [[ -L "${H_INSTR[$i]}" && "$(readlink "${H_INSTR[$i]}")" == "$CANONICAL" ]]; then
+      state="wired"
+    else
+      state="NOT WIRED (fabric sync)"
+    fi
+    printf '  %-10s %s  [%s]\n' "${H_NAMES[$i]}" "${H_INSTR[$i]}" "$state"
+  done
+}
+
+cmd_add_skill() {
+  local name="${1:-}"
+  [[ -n "$name" ]] || { fail_msg "usage: fabric add-skill <name>"; exit 1; }
+  local dir="$SKILLS_DIR/$name"
+  [[ -e "$dir" ]] && { fail_msg "skill already exists: $dir"; exit 1; }
+  mkdir -p "$dir"
+  cat > "$dir/SKILL.md" <<EOF
+---
+name: $name
+description: >-
+  TODO: one paragraph describing when an agent should use this skill. Include
+  concrete trigger phrases the user would actually say.
+---
+
+# $name
+
+TODO: instructions for the agent.
+EOF
+  ok "created $dir/SKILL.md"
+  cmd_sync
+  log "edit $dir/SKILL.md — every agent sees changes instantly (it's one file)"
+}
+
+cmd_adopt() {
+  local src="${1:-}"
+  [[ -n "$src" && -d "$src" ]] || { fail_msg "usage: fabric adopt <existing-skill-dir>"; exit 1; }
+  [[ -L "$src" ]] && { fail_msg "$src is already a symlink — nothing to adopt"; exit 1; }
+  [[ -f "$src/SKILL.md" ]] || { fail_msg "$src has no SKILL.md"; exit 1; }
+  local name dest
+  name="$(basename "$src")"
+  dest="$SKILLS_DIR/$name"
+  [[ -e "$dest" ]] && { fail_msg "hub already has a skill named $name"; exit 1; }
+  mv "$src" "$dest"
+  ln -s "$dest" "$src"
+  ok "adopted $name into hub; original location now symlinks to it"
+  cmd_sync
+}
+
+case "${1:-help}" in
+  sync)      cmd_sync ;;
+  verify)    cmd_verify ;;
+  status)    cmd_status ;;
+  add-skill) shift; cmd_add_skill "${1:-}" ;;
+  adopt)     shift; cmd_adopt "${1:-}" ;;
+  help|--help|-h) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) fail_msg "unknown command: $1 (try: fabric help)"; exit 1 ;;
+esac

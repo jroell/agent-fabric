@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# install.sh — set up agent-fabric in one command.
+#
+#   curl -fsSL https://raw.githubusercontent.com/jroell/agent-fabric/main/install.sh | bash
+#     — or —
+#   git clone https://github.com/jroell/agent-fabric && cd agent-fabric && ./install.sh
+#
+# What it does (idempotent; safe to re-run):
+#   1. Creates the hub at ~/.agent-fabric (skills/, memory/, bin/, .backups/)
+#   2. Seeds the canonical AGENTS.md from your existing instructions if you have
+#      any (~/.claude/CLAUDE.md, ~/CLAUDE.md, or ~/AGENTS.md), else from a starter template
+#   3. Installs the `fabric` CLI and the agent-fabric starter skill into the hub
+#   4. Runs `fabric sync` (wires every detected harness) and `fabric verify`
+#
+# Any real file replaced by a symlink is backed up first to ~/.agent-fabric/.backups/<date>/.
+#
+# macOS ONLY. Tested on Apple Silicon, macOS 13+.
+
+set -euo pipefail
+
+REPO_URL="https://github.com/jroell/agent-fabric"
+FABRIC_HOME="${FABRIC_HOME:-$HOME/.agent-fabric}"
+
+log() { printf '\033[1;34m[install]\033[0m %s\n' "$*"; }
+die() { printf '\033[0;31m[install] ERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+
+# ── 0. Platform guard ────────────────────────────────────────────────────────
+[[ "$(uname -s)" == "Darwin" ]] || die "agent-fabric currently supports macOS only (see README)."
+
+# ── 1. Locate repo files (or fetch them when piped via curl) ────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
+if [[ -z "$SCRIPT_DIR" || ! -f "$SCRIPT_DIR/bin/fabric" ]]; then
+  command -v git >/dev/null 2>&1 || die "git is required (xcode-select --install)"
+  TMP_CLONE="$(mktemp -d)"
+  log "fetching agent-fabric -> $TMP_CLONE"
+  git clone --depth 1 "$REPO_URL" "$TMP_CLONE/agent-fabric" >/dev/null 2>&1 \
+    || die "could not clone $REPO_URL"
+  SCRIPT_DIR="$TMP_CLONE/agent-fabric"
+fi
+[[ -f "$SCRIPT_DIR/bin/fabric" ]] || die "repo files not found at $SCRIPT_DIR"
+
+# ── 2. Create the hub ────────────────────────────────────────────────────────
+log "creating hub at $FABRIC_HOME"
+mkdir -p "$FABRIC_HOME/skills" "$FABRIC_HOME/memory" "$FABRIC_HOME/bin" "$FABRIC_HOME/.backups"
+
+# ── 3. Seed canonical AGENTS.md ──────────────────────────────────────────────
+CANONICAL="$FABRIC_HOME/AGENTS.md"
+if [[ ! -f "$CANONICAL" ]]; then
+  SEEDED=""
+  for candidate in "$HOME/.claude/CLAUDE.md" "$HOME/CLAUDE.md" "$HOME/AGENTS.md"; do
+    # Seed only from a REAL file (not a symlink — a symlink means some other
+    # system already manages it; we don't want to inherit a pointer).
+    if [[ -f "$candidate" && ! -L "$candidate" && -s "$candidate" ]]; then
+      cp "$candidate" "$CANONICAL"
+      SEEDED="$candidate"
+      break
+    fi
+  done
+  if [[ -n "$SEEDED" ]]; then
+    log "seeded canonical AGENTS.md from your existing $SEEDED"
+  else
+    cp "$SCRIPT_DIR/templates/AGENTS.md" "$CANONICAL"
+    log "seeded canonical AGENTS.md from starter template"
+  fi
+else
+  log "canonical AGENTS.md already exists — leaving it alone"
+fi
+
+# ── 4. Install CLI + starter skill ───────────────────────────────────────────
+cp "$SCRIPT_DIR/bin/fabric" "$FABRIC_HOME/bin/fabric"
+chmod +x "$FABRIC_HOME/bin/fabric"
+
+if [[ ! -e "$FABRIC_HOME/skills/agent-fabric" ]]; then
+  cp -R "$SCRIPT_DIR/templates/skills/agent-fabric" "$FABRIC_HOME/skills/agent-fabric"
+  log "installed the agent-fabric starter skill (teaches your agents to operate the fabric)"
+fi
+
+# ── 5. Wire everything + verify ──────────────────────────────────────────────
+"$FABRIC_HOME/bin/fabric" sync
+"$FABRIC_HOME/bin/fabric" verify
+
+echo
+log "done. Useful next steps:"
+echo "  1. Put the CLI on your PATH:  echo 'export PATH=\"\$HOME/.agent-fabric/bin:\$PATH\"' >> ~/.zshrc"
+echo "  2. Edit your canonical rules: \$EDITOR ~/.agent-fabric/AGENTS.md   (every agent sees it instantly)"
+echo "  3. Add a skill for all agents: fabric add-skill my-skill"
+echo "  4. Adopt an existing skill:    fabric adopt ~/.claude/skills/<name>"
+echo "  5. Health check any time:      fabric verify"
+echo
+echo "  Note: Warp's global Rules live in Warp cloud settings (Settings -> Rules) and"
+echo "  can't be wired by file; Warp still picks up all fabric skills via ~/.agents/skills."
